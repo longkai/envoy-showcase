@@ -23,7 +23,7 @@ env:
 
 
 jobs:
-  build:
+  build-and-push-image:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -49,17 +49,30 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     
-    - name: Get latest base image tag
-      id: get_latest_tag
+    - name: Checkout tools repo
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ github.repository_owner }}/toolkits
+        path: toolkits
+    
+    - name: setup nushell
+      uses: hustcer/setup-nu@v3
+      with:
+        check-latest: true
+    - name: fetch latest envoy version
+      shell: nu {0}
+      id: latest-versions
       run: |
-        LATEST_TAG=$(curl -s https://api.github.com/repos/envoyproxy/envoy/releases/latest | jq -r .tag_name)
-        # replace with format: vX.XX-latest
-        LATEST_TAG=$(echo $LATEST_TAG | sed 's/\(v[0-9]*\.[0-9]*\).*/\1-latest/')
-        echo "LATEST_TAG=$LATEST_TAG" >> $GITHUB_ENV
-      
-    - name: Update Containerfile
-      run: |
-        sed -i "s|^FROM base.*|FROM envoyproxy/envoy:${{ env.LATEST_TAG }}|" Containerfile
+        use ${{ github.workspace }}/toolkits/nushell/scripts *
+
+        [
+            [envoyproxy/envoy ENVOY_VERSION]
+        ] | each {|it|
+            github latest-version $it.0 | github semver $in | $"($in.major).($in.minor)" | do {
+                $"LATEST_TAG=v($in)-latest" | save -a $env.GITHUB_ENV
+                $in
+            } | $"($it.1)=($in)"
+        } | str join "\n" | github multi-line-output LATEST_VERSIONS $in
 
     # Extract metadata (tags, labels) for Docker
     # https://github.com/docker/metadata-action
@@ -81,3 +94,4 @@ jobs:
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.LATEST_TAG }},${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
         labels: ${{ steps.meta.outputs.labels }}
+        build-args: ${{ steps.latest-versions.outputs.LATEST_VERSIONS }}
