@@ -21,7 +21,6 @@ env:
   # github.repository as <account>/<repo>
   IMAGE_NAME: ${{ github.repository_owner }}/envoy
 
-
 jobs:
   build-and-push-image:
     runs-on: ubuntu-latest
@@ -52,8 +51,8 @@ jobs:
     - name: Checkout tools repo
       uses: actions/checkout@v4
       with:
-        repository: ${{ github.repository_owner }}/toolkits
-        path: toolkits
+        repository: ${{ github.repository_owner }}/toolkit
+        path: toolkit
     
     - name: setup nushell
       uses: hustcer/setup-nu@v3
@@ -63,16 +62,18 @@ jobs:
       shell: nu {0}
       id: latest-versions
       run: |
-        use ${{ github.workspace }}/toolkits/nushell/scripts *
+        use ${{ github.workspace }}/toolkit/nushell/scripts *
 
         [
             [envoyproxy/envoy ENVOY_VERSION]
         ] | each {|it|
-            github latest-version $it.0 | github semver $in | $"($in.major).($in.minor)" | do {
+            $it.0 | github-action latest-version | git semver | $"($in.major).($in.minor)" | do {
                 $"LATEST_TAG=v($in)-latest" | save -a $env.GITHUB_ENV
                 $in
             } | $"($it.1)=($in)"
-        } | str join "\n" | github multi-line-output LATEST_VERSIONS $in
+        } | str join "\n"
+        | github-action multi-line LATEST_VERSIONS
+        | save -a $env.GITHUB_OUTPUT
 
     # Extract metadata (tags, labels) for Docker
     # https://github.com/docker/metadata-action
